@@ -110,18 +110,23 @@ def read_menus(file):
     return df_menus
 
 
-def format_as_markdown(df):
+def format_as_markdown(df: pd.DataFrame ) -> str:
     # Format the dataframe as markdown table for Mattermost
-    df_formatted = df[
+    df_formatted: pd.DataFrame = df[
         ['restaurant', 'price', 'vegan', 'title', 'description']
     ]
     # Put the column names with the first letter capitalized
     df_formatted.columns = [col.capitalize() for col in df_formatted.columns]
 
+    # Put the resturant in bold 
+    make_bold = lambda col: col.str.replace(r'(\w+)', r'**\1**', regex=True)
+    df_formatted['Restaurant'] = make_bold(df_formatted['Restaurant'])
+    df_formatted['Title'] = make_bold(df_formatted['Title'])
     # Format price with 2 decimal places (enforce for the markdown transformation)
-    df_formatted['Price'] = df_formatted['Price'].apply(lambda x: f"{x:.2f} CHF" if pd.notnull(x) else "N/A")
+    df_formatted['Price'] = df_formatted['Price'].apply(lambda x: f"*{x:.2f}*" if pd.notnull(x) else "N/A")
+    df_formatted['Vegan'] = df_formatted['Vegan'].apply(lambda x: "✔️" if x else "❌")
 
-    df_md = df_formatted.to_markdown(index=False, tablefmt="pipe")
+    df_md = df_formatted.to_markdown(index=False, tablefmt="github")
 
     return df_md
 
@@ -152,7 +157,7 @@ if __name__ == "__main__":
         file = raw_html / f"menu_{date.today()}.html"
 
         try:
-            download_html(uri, file)
+            #download_html(uri, file)
             df = read_menus(file)
         except Exception as e:
             logger.error(f"Error processing {restaurant} menu: {e}")
