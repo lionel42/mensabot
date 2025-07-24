@@ -114,7 +114,7 @@ def format_as_markdown(df: pd.DataFrame ) -> str:
     # Format the dataframe as markdown table for Mattermost
     df_formatted: pd.DataFrame = df[
         ['restaurant', 'price', 'vegan', 'title', 'description']
-    ]
+    ].copy(deep=True)
     # Put the column names with the first letter capitalized
     df_formatted.columns = [col.capitalize() for col in df_formatted.columns]
 
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         file = raw_html / f"menu_{date.today()}.html"
 
         try:
-            #download_html(uri, file)
+            download_html(uri, file)
             df = read_menus(file)
         except Exception as e:
             logger.error(f"Error processing {restaurant} menu: {e}")
@@ -184,7 +184,7 @@ if __name__ == "__main__":
         )
 
         # Select only the vegetarian and vegan options
-        df_veg = df[(df['vegetarian'] == True) | (df['vegan'] == True)] 
+        df_veg = df[(df['vegetarian'] == True) | (df['vegan'] == True)].copy(deep=True)
 
         df_md = format_as_markdown(df_veg)
 
