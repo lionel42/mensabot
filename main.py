@@ -272,7 +272,7 @@ Examples:
     parser.add_argument(
         "--work-dir",
         type=str,
-        default="/home/coli/Documents/mensabot",
+        default=Path.home() / ".mensabot",
         help="Working directory for storing menu data (default: %(default)s)",
     )
 
