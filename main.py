@@ -40,6 +40,17 @@ def download_html(uri, file):
     return file
 
 
+def find_veg_labels(img: BeautifulSoup) -> str:
+    """Find all vegan/vegetarian in the labels-list div."""
+    alt = img.get("alt", "").lower()
+    title = img.get("title", "").lower()
+    if "vegan" in alt or "vegan" in title:
+        return "vegan"
+    elif "vegetar" in alt or "vegetar" in title:
+        return "vegetarian"
+    else:
+        return None
+
 def read_menus(file, date: date):
     with open(file, "r") as f:
         html_content = f.read()
@@ -55,7 +66,7 @@ def read_menus(file, date: date):
 
     logger.debug(f"Found {len(daily_menus)} daily menus")
 
-    logger.debug(
+    logger.info(
         f"Daily menu: {daily_menus[0].prettify() if daily_menus else 'No daily menus found'}"
     )
 
@@ -111,15 +122,18 @@ def read_menus(file, date: date):
             # Detect vegan/vegetarian by <img> alt or title attributes in label-list
             is_vegan = False
             is_vegetarian = False
-            label_list = item.find("div", class_="label-list")
-            if label_list:
-                for img in label_list.find_all("img"):
-                    alt = img.get("alt", "").lower()
-                    title = img.get("title", "").lower()
-                    if "vegan" in alt or "vegan" in title:
-                        is_vegan = True
-                    if "vegetar" in alt or "vegetar" in title:
-                        is_vegetarian = True
+            label_lists = item.find_all("div", class_="label-list")
+
+            if label_lists:
+                # Put all the ResultSet together
+                for label_list in label_lists:
+                    logger.debug(f"Processing label list: {label_list.prettify()}")
+                    for img in label_list.find_all("img"):
+                        label = find_veg_labels(img)
+                        if label == "vegan":
+                            is_vegan = True
+                        elif label == "vegetarian":
+                            is_vegetarian = True
             # If vegan, also mark as vegetarian
             if is_vegan:
                 is_vegetarian = True
@@ -206,18 +220,21 @@ if __name__ == "__main__":
 
     # Debug option when testing the script, will raise exceptions so that you can see the errors
     # it will not send the message to Mattermost to avoid spamming
-    debug = True
+    debug = False
     # Whether to redownload the menus
     # useful when debugging the script
     download = True
 
-    # Whether to download the next workday's menu
+    # Whether to download the next workday's menu, if not it will download today's menu
+    # On fridays, it will download the menu for monday
+    # Currently the script assumes not menuse are available on weekends and that it will not be runned on weekends
     next_day = True
 
     uris = {
         "Empa": "https://sv-restaurant.ch/menu/Empa-EAWAG,%20D%C3%BCbendorf/Mittagsmen%C3%BC%20Fire",
         "Eawag": "https://sv-restaurant.ch/menu/Empa-EAWAG,%20D%C3%BCbendorf/Lunch%20Aqa",
         "Amag": "https://sv-restaurant.ch/menu/AMAG,%20D%C3%BCbendorf/Mittagsmen%C3%BC",
+        "Memphis": "https://sv-restaurant.ch/menu/Memphis/Lunch",
     }
 
     mensa_files = []
@@ -243,7 +260,7 @@ if __name__ == "__main__":
         outputs = save_path / "outputs"
         outputs.mkdir(exist_ok=True, parents=True)
 
-        file = raw_html / f"menu_{day_to_download}.html"
+        file = raw_html / f"menu_{day_to_download.strftime('%Y-%m-%d')}.html"
 
         try:
             if download:
