@@ -366,7 +366,7 @@ if __name__ == "__main__":
         "\n\n ## Errors when processing data" + "\n".join(errors) if errors else ""
     )
     text = (
-        f"# 🥦 Vegi menus {day_to_download.strftime('%A %m-%d')} \n\n{df_md}{error_md}"
+        f"# 🥦 Menus {day_to_download.strftime('%A %d %B')} \n\n{df_md}{error_md}"
     )
 
     if debug:
