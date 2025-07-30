@@ -1,11 +1,13 @@
 from pathlib import Path
 from datetime import datetime, date
+import logging
+import re
+import argparse
+
+import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-import requests
-import logging
 from playwright.sync_api import sync_playwright
-import re
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,7 @@ def find_veg_labels(img: BeautifulSoup) -> str:
     else:
         return None
 
+
 def read_menus(file, date: date):
     with open(file, "r") as f:
         html_content = f.read()
@@ -66,7 +69,7 @@ def read_menus(file, date: date):
 
     logger.debug(f"Found {len(daily_menus)} daily menus")
 
-    logger.info(
+    logger.debug(
         f"Daily menu: {daily_menus[0].prettify() if daily_menus else 'No daily menus found'}"
     )
 
@@ -210,25 +213,82 @@ def format_as_markdown(df: pd.DataFrame) -> str:
     return df_md
 
 
-if __name__ == "__main__":
-
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Mensabot - Fetch vegetarian/vegan menu items from SV restaurants",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                          # Run with default settings
+  %(prog)s --debug                  # Run in debug mode (no Mattermost message)
+  %(prog)s --no-download            # Use existing HTML files
+  %(prog)s --today                  # Get today's menu instead of next workday
+  %(prog)s --debug --no-download    # Debug mode with existing files
+        """,
     )
 
-    work_dir = Path("/home/coli/Documents/mensabot")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode (don't send to Mattermost, show message content)",
+    )
 
-    # Debug option when testing the script, will raise exceptions so that you can see the errors
-    # it will not send the message to Mattermost to avoid spamming
-    debug = False
-    # Whether to redownload the menus
-    # useful when debugging the script
-    download = True
+    parser.add_argument(
+        "--no-download",
+        action="store_true",
+        help="Don't download new HTML files, use existing ones",
+    )
 
-    # Whether to download the next workday's menu, if not it will download today's menu
-    # On fridays, it will download the menu for monday
-    # Currently the script assumes not menuse are available on weekends and that it will not be runned on weekends
-    next_day = True
+    parser.add_argument(
+        "--today",
+        action="store_true",
+        help="Get today's menu instead of next workday's menu",
+    )
+
+    parser.add_argument(
+        "--work-dir",
+        type=str,
+        default="/home/coli/Documents/mensabot",
+        help="Working directory for storing menu data (default: %(default)s)",
+    )
+
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Set logging level (default: %(default)s)",
+    )
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    # Parse command line arguments
+    args = parse_arguments()
+
+    # Configure logging based on arguments
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+
+    # Configuration from arguments
+    work_dir = Path(args.work_dir)
+    debug = args.debug
+    download = not args.no_download  # Invert because arg is --no-download
+    next_day = not args.today  # Invert because arg is --today
+
+    # Print configuration in debug mode
+    if debug:
+        logger.info("=== Mensabot Configuration ===")
+        logger.info(f"Work directory: {work_dir}")
+        logger.info(f"Debug mode: {debug}")
+        logger.info(f"Download new files: {download}")
+        logger.info(f"Next workday menu: {next_day}")
+        logger.info(f"Log level: {args.log_level}")
+        logger.info("===============================")
+
 
     uris = {
         "Empa": "https://sv-restaurant.ch/menu/Empa-EAWAG,%20D%C3%BCbendorf/Mittagsmen%C3%BC%20Fire",
@@ -280,7 +340,7 @@ if __name__ == "__main__":
         df["restaurant"] = restaurant
 
         # Save the data
-        mensa_file = save_path / f"menu_{day_to_download.strftime("%Y-%m-%d")}.csv"
+        mensa_file = save_path / f"menu_{day_to_download.strftime('%Y-%m-%d')}.csv"
         mensa_files.append(mensa_file)
         df.to_csv(mensa_file, index=False)
 
@@ -310,6 +370,9 @@ if __name__ == "__main__":
     )
 
     if debug:
-        logger.info(f"Message: {text}")
+        logger.info(f"Debug mode - Message content:\n{text}")
+        logger.info("=== Debug Mode ===")
+        logger.info("Message was not sent to Mattermost (debug mode enabled)")
+        logger.info("To send the actual message, run without --debug flag")
     else:
         send_mattermost_message(url_file=work_dir / "mattermost_url.txt", text=text)
