@@ -42,7 +42,7 @@ def download_html(uri, file):
     return file
 
 
-def find_veg_labels(img: BeautifulSoup) -> str:
+def find_labels(img: BeautifulSoup) -> str | None:
     """Find all vegan/vegetarian in the labels-list div."""
     alt = img.get("alt", "").lower()
     title = img.get("title", "").lower()
@@ -50,8 +50,17 @@ def find_veg_labels(img: BeautifulSoup) -> str:
         return "vegan"
     elif "vegetar" in alt or "vegetar" in title:
         return "vegetarian"
+    elif "glutenfrei" in alt or "glutenfrei" in title:
+        return "glutenfree"
+    elif alt.startswith("co2"):
+        # The title is something like this: Your ecological footprint represents 0.7 g CO2e 
+        # Get the number
+        match = re.search(r"([\d.]+)\s*g\s*co2e", title, re.IGNORECASE)
+        if match:
+            return f"co2_{match.group(1)}"
     else:
         return None
+
 
 
 def read_menus(file, date: date):
@@ -84,6 +93,8 @@ def read_menus(file, date: date):
             "provenance",
             "vegan",
             "vegetarian",
+            "glutenfree",
+            "co2_footprint",
         ]
     }
 
@@ -125,6 +136,8 @@ def read_menus(file, date: date):
             # Detect vegan/vegetarian by <img> alt or title attributes in label-list
             is_vegan = False
             is_vegetarian = False
+            co2_footprint = None
+            glutenfree = False
             label_lists = item.find_all("div", class_="label-list")
 
             if label_lists:
@@ -132,11 +145,19 @@ def read_menus(file, date: date):
                 for label_list in label_lists:
                     logger.debug(f"Processing label list: {label_list.prettify()}")
                     for img in label_list.find_all("img"):
-                        label = find_veg_labels(img)
-                        if label == "vegan":
+                        label = find_labels(img)
+                        if label is None:
+                            continue
+                        elif label == "vegan":
                             is_vegan = True
                         elif label == "vegetarian":
                             is_vegetarian = True
+                        elif label == "glutenfree":
+                            glutenfree = True
+                        elif label.startswith("co2_"):
+                            co2_footprint = label[4:]
+                        else:
+                            logger.warning(f"Unknown label: {label}")
             # If vegan, also mark as vegetarian
             if is_vegan:
                 is_vegetarian = True
@@ -151,6 +172,8 @@ def read_menus(file, date: date):
             menus["provenance"].append(provenance)
             menus["vegan"].append(is_vegan)
             menus["vegetarian"].append(is_vegetarian)
+            menus["glutenfree"].append(glutenfree)
+            menus['co2_footprint'].append(co2_footprint)
 
     df_menus = pd.DataFrame(menus)
 
