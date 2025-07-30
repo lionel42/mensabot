@@ -40,7 +40,7 @@ def download_html(uri, file):
     return file
 
 
-def read_menus(file):
+def read_menus(file, date: date):
     with open(file, "r") as f:
         html_content = f.read()
 
@@ -73,9 +73,9 @@ def read_menus(file):
         ]
     }
 
+    day = date.strftime("%A")
+    date = date.strftime("%Y-%m-%d")
     for i, daily_menu in enumerate(daily_menus):
-        day = datetime.now().strftime("%A")
-        date = datetime.now().strftime("%Y-%m-%d")
         # Read the menu items
 
         menu_items = daily_menu.find_all(class_="product-wrapper")
@@ -206,10 +206,13 @@ if __name__ == "__main__":
 
     # Debug option when testing the script, will raise exceptions so that you can see the errors
     # it will not send the message to Mattermost to avoid spamming
-    debug = False
+    debug = True
     # Whether to redownload the menus
     # useful when debugging the script
     download = True
+
+    # Whether to download the next workday's menu
+    next_day = True
 
     uris = {
         "Empa": "https://sv-restaurant.ch/menu/Empa-EAWAG,%20D%C3%BCbendorf/Mittagsmen%C3%BC%20Fire",
@@ -221,6 +224,17 @@ if __name__ == "__main__":
 
     errors = []
 
+    today = date.today()
+    day_to_download = (
+        today
+        + pd.DateOffset(
+            # In case it is friday , we want to download the menu for monday
+            days=1 if today.weekday() != 4 else 3
+        )
+        if next_day
+        else today
+    )
+
     for restaurant, uri in uris.items():
         save_path = work_dir / restaurant
 
@@ -229,12 +243,14 @@ if __name__ == "__main__":
         outputs = save_path / "outputs"
         outputs.mkdir(exist_ok=True, parents=True)
 
-        file = raw_html / f"menu_{date.today()}.html"
+        file = raw_html / f"menu_{day_to_download}.html"
 
         try:
             if download:
+                if next_day:
+                    uri = uri + "/date/" + day_to_download.strftime("%Y-%m-%d")
                 download_html(uri, file)
-            df = read_menus(file)
+            df = read_menus(file, date=day_to_download)
         except Exception as e:
             logger.error(f"Error processing {restaurant} menu: {e}")
             if debug:
@@ -247,7 +263,7 @@ if __name__ == "__main__":
         df["restaurant"] = restaurant
 
         # Save the data
-        mensa_file = save_path / f"menu_{date.today()}.csv"
+        mensa_file = save_path / f"menu_{day_to_download.strftime("%Y-%m-%d")}.csv"
         mensa_files.append(mensa_file)
         df.to_csv(mensa_file, index=False)
 
@@ -272,7 +288,9 @@ if __name__ == "__main__":
     error_md = (
         "\n\n ## Errors when processing data" + "\n".join(errors) if errors else ""
     )
-    text = f"# Vegi menus today \n\n 🥑🍆🥔🥕🌽🌶️ 🫑 🥒🥬🥦🧄🧅🥜 🫘 🌰🍄  \n\n{df_md}{error_md}"
+    text = (
+        f"# 🥦 Vegi menus {day_to_download.strftime('%A %m-%d')} \n\n{df_md}{error_md}"
+    )
 
     if debug:
         logger.info(f"Message: {text}")
