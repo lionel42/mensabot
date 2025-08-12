@@ -53,14 +53,14 @@ def find_labels(img: BeautifulSoup) -> str | None:
     elif "glutenfrei" in alt or "glutenfrei" in title:
         return "glutenfree"
     elif alt.startswith("co2"):
-        # The title is something like this: Your ecological footprint represents 0.7 g CO2e 
+        # The title is something like this: 
+        # Your ecological footprint represents 0.7 g CO2e
         # Get the number
         match = re.search(r"([\d.]+)\s*g\s*co2e", title, re.IGNORECASE)
         if match:
             return f"co2_{match.group(1)}"
     else:
         return None
-
 
 
 def read_menus(file, date: date):
@@ -173,7 +173,7 @@ def read_menus(file, date: date):
             menus["vegan"].append(is_vegan)
             menus["vegetarian"].append(is_vegetarian)
             menus["glutenfree"].append(glutenfree)
-            menus['co2_footprint'].append(co2_footprint)
+            menus["co2_footprint"].append(co2_footprint)
 
     df_menus = pd.DataFrame(menus)
 
@@ -215,7 +215,7 @@ def parse_price(price_str: str) -> str:
     return f"*{price_float:.2f}*"
 
 
-def format_as_markdown(df: pd.DataFrame) -> str:
+def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     # Format the dataframe as markdown table for Mattermost
     df_formatted: pd.DataFrame = df[
         ["restaurant", "price", "vegan", "title", "description"]
@@ -225,7 +225,8 @@ def format_as_markdown(df: pd.DataFrame) -> str:
 
     # Put the resturant in bold
     make_bold = lambda col: col.str.replace(r"(\w+)", r"**\1**", regex=True)
-    df_formatted["Restaurant"] = make_bold(df_formatted["Restaurant"])
+    make_link = lambda col: f"[{col}]({uris[col]})" if col in uris else col
+    df_formatted["Restaurant"] = df_formatted["Restaurant"].apply(make_link)
     df_formatted["Title"] = make_bold(df_formatted["Title"])
     # Format price with 2 decimal places (enforce for the markdown transformation)
     df_formatted["Price"] = df_formatted["Price"].apply(parse_price)
@@ -259,6 +260,7 @@ Examples:
 
     parser.add_argument(
         "--no-download",
+        dest="no_download",
         action="store_true",
         help="Don't download new HTML files, use existing ones",
     )
@@ -278,6 +280,8 @@ Examples:
 
     parser.add_argument(
         "--log-level",
+        "--log",
+        dest="log_level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default="INFO",
         help="Set logging level (default: %(default)s)",
@@ -312,12 +316,11 @@ if __name__ == "__main__":
         logger.info(f"Log level: {args.log_level}")
         logger.info("===============================")
 
-
     uris = {
         "Empa": "https://sv-restaurant.ch/menu/Empa-EAWAG,%20D%C3%BCbendorf/Mittagsmen%C3%BC%20Fire",
         "Eawag": "https://sv-restaurant.ch/menu/Empa-EAWAG,%20D%C3%BCbendorf/Lunch%20Aqa",
         "Amag": "https://sv-restaurant.ch/menu/AMAG,%20D%C3%BCbendorf/Mittagsmen%C3%BC",
-        "Memphis": "https://sv-restaurant.ch/menu/Memphis/Lunch",
+        "Memphis": "https://sv-restaurant.ch/menu/Memphis,%20D%C3%BCbendorf/Lunch",
     }
 
     mensa_files = []
@@ -340,8 +343,8 @@ if __name__ == "__main__":
 
         raw_html = save_path / "raw_html"
         raw_html.mkdir(exist_ok=True, parents=True)
-        outputs = save_path / "outputs"
-        outputs.mkdir(exist_ok=True, parents=True)
+        cleaned_csv_dir = save_path / "menus"
+        cleaned_csv_dir.mkdir(exist_ok=True, parents=True)
 
         file = raw_html / f"menu_{day_to_download.strftime('%Y-%m-%d')}.html"
 
@@ -363,7 +366,9 @@ if __name__ == "__main__":
         df["restaurant"] = restaurant
 
         # Save the data
-        mensa_file = save_path / f"menu_{day_to_download.strftime('%Y-%m-%d')}.csv"
+        mensa_file = (
+            cleaned_csv_dir / f"menu_{day_to_download.strftime('%Y-%m-%d')}.csv"
+        )
         mensa_files.append(mensa_file)
         df.to_csv(mensa_file, index=False)
 
@@ -374,7 +379,7 @@ if __name__ == "__main__":
         # Select only the vegetarian and vegan options
         df_veg = df[(df["vegetarian"] == True) | (df["vegan"] == True)].copy(deep=True)
 
-        df_md = format_as_markdown(df_veg)
+        df_md = format_as_markdown(df_veg, uris=uris)
 
         logger.info(f"Formatted DataFrame for Mattermost:\n{df_md}")
     except Exception as e:
@@ -388,9 +393,7 @@ if __name__ == "__main__":
     error_md = (
         "\n\n ## Errors when processing data" + "\n".join(errors) if errors else ""
     )
-    text = (
-        f"# 🥦 Menus {day_to_download.strftime('%A %d %B')} \n\n{df_md}{error_md}"
-    )
+    text = f"# {day_to_download.strftime('%A %d %B')} \n\n{df_md}{error_md}"
 
     if debug:
         logger.info(f"Debug mode - Message content:\n{text}")
