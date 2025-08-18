@@ -52,7 +52,7 @@ def find_labels(img: BeautifulSoup) -> str | None:
         return "vegetarian"
     elif "glutenfrei" in alt or "glutenfrei" in title:
         return "glutenfree"
-    elif "Gluten-free" in alt or "Gluten-free" in title:
+    elif "gluten-free" in alt or "gluten-free" in title:
         return "glutenfree"
     elif alt.startswith("co2"):
         # The title is something like this: 
