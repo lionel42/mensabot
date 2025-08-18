@@ -52,6 +52,8 @@ def find_labels(img: BeautifulSoup) -> str | None:
         return "vegetarian"
     elif "glutenfrei" in alt or "glutenfrei" in title:
         return "glutenfree"
+    elif "Gluten-free" in alt or "Gluten-free" in title:
+        return "glutenfree"
     elif alt.startswith("co2"):
         # The title is something like this: 
         # Your ecological footprint represents 0.7 g CO2e
@@ -218,7 +220,7 @@ def parse_price(price_str: str) -> str:
 def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     # Format the dataframe as markdown table for Mattermost
     df_formatted: pd.DataFrame = df[
-        ["restaurant", "price", "vegan", "title", "description"]
+        ["restaurant", "price", "vegan", "glutenfree", "title", "description"]
     ].copy(deep=True)
     # Put the column names with the first letter capitalized
     df_formatted.columns = [col.capitalize() for col in df_formatted.columns]
@@ -231,6 +233,7 @@ def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     # Format price with 2 decimal places (enforce for the markdown transformation)
     df_formatted["Price"] = df_formatted["Price"].apply(parse_price)
     df_formatted["Vegan"] = df_formatted["Vegan"].apply(lambda x: "✔️" if x else "❌")
+    df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(lambda x: "✔️" if x else "❌")
 
     df_md = df_formatted.to_markdown(index=False, tablefmt="github")
 
