@@ -160,6 +160,10 @@ def read_menus(file, date: date):
                             co2_footprint = label[4:]
                         else:
                             logger.warning(f"Unknown label: {label}")
+
+            # If vegetatrische alternative is possible, mark as vegetarian
+            if "vegetarische alternative" in description.lower():
+                is_vegetarian = True
             # If vegan, also mark as vegetarian
             if is_vegan:
                 is_vegetarian = True
