@@ -1,14 +1,14 @@
-from pathlib import Path
-from datetime import datetime, date
-import logging
-import re
 import argparse
+import logging
+import os
+import re
+from datetime import date, datetime
+from pathlib import Path
 
-import requests
 import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def find_labels(img: BeautifulSoup) -> str | None:
     elif "gluten-free" in alt or "gluten-free" in title:
         return "glutenfree"
     elif alt.startswith("co2"):
-        # The title is something like this: 
+        # The title is something like this:
         # Your ecological footprint represents 0.7 g CO2e
         # Get the number
         match = re.search(r"([\d.]+)\s*g\s*co2e", title, re.IGNORECASE)
@@ -186,11 +186,24 @@ def read_menus(file, date: date):
     return df_menus
 
 
-def send_mattermost_message(url_file, text: str):
-
-    # Send a messag to Mattermost
+def get_mattermost_webhook_url(url_file: Path) -> str:
+    """Get the Mattermost webhook URL from environment variable or file."""
+    url = os.environ.get("MATTERMOST_WEBHOOK_URL")
+    if url is not None:
+        return url
+    if not url_file.is_file():
+        raise ValueError(
+            f"Mattermost webhook URL not found in environment variable "
+            f"MATTERMOST_WEBHOOK_URL or file {url_file}"
+        )
     with open(url_file, "r") as f:
         url = f.read().strip()  # Read the URL from a text file
+    return url
+
+
+def send_mattermost_message(url: str, text: str):
+
+    # Send a message to Mattermost
 
     headers = {"Content-Type": "application/json"}
 
@@ -237,7 +250,9 @@ def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     # Format price with 2 decimal places (enforce for the markdown transformation)
     df_formatted["Price"] = df_formatted["Price"].apply(parse_price)
     df_formatted["Vegan"] = df_formatted["Vegan"].apply(lambda x: "✔️" if x else "❌")
-    df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(lambda x: "✔️" if x else "❌")
+    df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(
+        lambda x: "✔️" if x else "❌"
+    )
 
     df_md = df_formatted.to_markdown(index=False, tablefmt="github")
 
@@ -408,4 +423,5 @@ if __name__ == "__main__":
         logger.info("Message was not sent to Mattermost (debug mode enabled)")
         logger.info("To send the actual message, run without --debug flag")
     else:
-        send_mattermost_message(url_file=work_dir / "mattermost_url.txt", text=text)
+        url = get_mattermost_webhook_url(work_dir / "mattermost_url.txt")
+        send_mattermost_message(url=url, text=text)
