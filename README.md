@@ -62,5 +62,5 @@ docker build -t mensabot .
 Run the Docker container:
 
 ```
-docker run mensabot
+docker run mensabot python -m mensabot
 ```
