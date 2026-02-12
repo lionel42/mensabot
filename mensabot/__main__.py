@@ -1,14 +1,14 @@
-from pathlib import Path
-from datetime import datetime, date
-import logging
-import re
 import argparse
+import logging
+import os
+import re
+from datetime import date, datetime
+from pathlib import Path
 
-import requests
 import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-
 
 logger = logging.getLogger(__name__)
 
@@ -216,11 +216,24 @@ def read_menus(file, date: date):
     return df_menus
 
 
-def send_mattermost_message(url_file, text: str):
-
-    # Send a messag to Mattermost
+def get_mattermost_webhook_url(url_file: Path) -> str:
+    """Get the Mattermost webhook URL from environment variable or file."""
+    url = os.environ.get("MATTERMOST_WEBHOOK_URL")
+    if url is not None:
+        return url
+    if not url_file.is_file():
+        raise ValueError(
+            f"Mattermost webhook URL not found in environment variable "
+            f"MATTERMOST_WEBHOOK_URL or file {url_file}"
+        )
     with open(url_file, "r") as f:
         url = f.read().strip()  # Read the URL from a text file
+    return url
+
+
+def send_mattermost_message(url: str, text: str):
+
+    # Send a message to Mattermost
 
     headers = {"Content-Type": "application/json"}
 
@@ -479,4 +492,5 @@ if __name__ == "__main__":
         logger.info("Message was not sent to Mattermost (debug mode enabled)")
         logger.info("To send the actual message, run without --debug flag")
     else:
-        send_mattermost_message(url_file=work_dir / "mattermost_url.txt", text=text)
+        url = get_mattermost_webhook_url(work_dir / "mattermost_url.txt")
+        send_mattermost_message(url=url, text=text)

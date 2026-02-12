@@ -27,8 +27,40 @@ Just open an issue or a pull request and we can discuss it.
 | Empa         | 11.50 CHF | True    | Buddha Bowl | mit Quinoa, Randen Falafel, Zucchetti, Sesam  Rettich Pickles, Lattich, Cherrytomaten und Olivenöl-Zitronen Dressing , Tagessalat und 1dl Saft |
 | Eawag        | 13.70 CHF | True    | Korma Curry | mit geräucherten Tofu, rotem Jasminreis und   Tagessalat oder Tagessuppe                                                                       |
 
+## Mattermost webhook url
+
+You need to set the MATTERMOST_WEBHOOK_URL environment variable to your Mattermost incoming webhook url.
+
+
 ## How to run
 
-I run this daily via a cron job. 
-We might create a CLI in the future, if anyone is interested in that, so that we can 
-add options easily and put the configuration in a separate file.
+First install the mensabot package. You can do this via pip:
+
+```
+pip install .
+```
+
+Then you can run the script via:
+
+```
+python -m mensabot
+```
+
+You can run this daily via a cron job. 
+You can also use the provided app.py script to run it every weekday at 14:00.
+
+## Docker
+
+Alternativatively, you can run it in a Docker container.
+
+Build the Docker image:
+
+```
+docker build -t mensabot .
+```
+
+Run the Docker container:
+
+```
+docker run mensabot python -m mensabot
+```

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mensabot"
+version = "0.1.0"
+description = "A script that parses menus from the SV Mensa website and sends them to Mattermost"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "lionel42"}
+]
+license = {text = "MIT"}
+keywords = ["mensa", "menu", "parser", "mattermost"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "requests>=2.25.0",
+    "pandas>=1.0.0",
+    "beautifulsoup4>=4.9.0",
+    "playwright>=1.30.0",
+    "tabulate>=0.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "black>=21.0",
+    "flake8>=3.9.0",
+    "mypy>=0.900",
+]
+
+[project.scripts]
+mensabot = "main:main"
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+line_length = 88
