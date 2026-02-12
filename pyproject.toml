@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mensabot"
-version = "0.1.0"
+version = "0.2.0"
 description = "A script that parses menus from the SV Mensa website and sends them to Mattermost"
 readme = "README.md"
 requires-python = ">=3.8"
