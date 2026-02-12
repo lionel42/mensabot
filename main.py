@@ -55,7 +55,7 @@ def find_labels(img: BeautifulSoup) -> str | None:
     elif "gluten-free" in alt or "gluten-free" in title:
         return "glutenfree"
     elif alt.startswith("co2"):
-        # The title is something like this: 
+        # The title is something like this:
         # Your ecological footprint represents 0.7 g CO2e
         # Get the number
         match = re.search(r"([\d.]+)\s*g\s*co2e", title, re.IGNORECASE)
@@ -103,18 +103,48 @@ def read_menus(file, date: date):
     day = date.strftime("%A")
     date = date.strftime("%Y-%m-%d")
     for i, daily_menu in enumerate(daily_menus):
-        # Read the menu items
-
+        # Read the menu items - try both old and new HTML structures
         menu_items = daily_menu.find_all(class_="product-wrapper")
-        logger.info(f"Found {len(menu_items)} menu items")
+
+        # If old structure not found, try new structure (mat-card)
+        if not menu_items:
+            menu_items = daily_menu.find_all(class_="product-card")
+            is_new_format = True
+        else:
+            is_new_format = False
+
+        logger.info(
+            f"Found {len(menu_items)} menu items (format: {'new' if is_new_format else 'old'})"
+        )
 
         # Iterate over each menu item and extract relevant information
         for index, item in enumerate(menu_items):
             logger.debug(f"Processing {item.prettify()}")
 
-            title_menu = item.find(class_="pre-wrap").text.strip()
-            description = item.find(class_="product-teaser").text.strip()
-            # Find all price elements
+            # Extract title - handle both old and new formats
+            if is_new_format:
+                # New format: div.product-title > button
+                title_elem = item.find("div", class_="product-title")
+                if title_elem and title_elem.find("button"):
+                    title_menu = title_elem.find("button").text.strip()
+                else:
+                    title_menu = ""
+            else:
+                # Old format: pre-wrap class
+                title_elem = item.find(class_="pre-wrap")
+                title_menu = title_elem.text.strip() if title_elem else ""
+
+            # Extract description - handle both formats
+            if is_new_format:
+                # New format: div.push-bottom-xs
+                desc_elem = item.find("div", class_="push-bottom-xs")
+                description = desc_elem.text.strip() if desc_elem else ""
+            else:
+                # Old format: product-teaser class
+                desc_elem = item.find(class_="product-teaser")
+                description = desc_elem.text.strip() if desc_elem else ""
+
+            # Extract price - handle both formats
             price_elems = item.find_all(class_="price")
             price = None
             for pe in price_elems:
@@ -237,11 +267,46 @@ def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     # Format price with 2 decimal places (enforce for the markdown transformation)
     df_formatted["Price"] = df_formatted["Price"].apply(parse_price)
     df_formatted["Vegan"] = df_formatted["Vegan"].apply(lambda x: "✔️" if x else "❌")
-    df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(lambda x: "✔️" if x else "❌")
+    df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(
+        lambda x: "✔️" if x else "❌"
+    )
 
     df_md = df_formatted.to_markdown(index=False, tablefmt="github")
 
     return df_md
+
+
+def determine_target_date(custom_date_str: str = None, use_today: bool = False) -> date:
+    """
+    Determine the target date for fetching the menu.
+
+    Args:
+        custom_date_str: Custom date in YYYY-MM-DD format. Takes precedence over use_today.
+        use_today: If True, use today's date. Otherwise, use next workday.
+
+    Returns:
+        The date to fetch the menu for.
+
+    Raises:
+        ValueError: If custom_date_str is provided but invalid format.
+    """
+    if custom_date_str:
+        # Custom date provided
+        try:
+            return datetime.strptime(custom_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            logger.error(f"Invalid date format: {custom_date_str}. Expected YYYY-MM-DD")
+            raise ValueError(
+                f"Invalid date format: {custom_date_str}. Expected YYYY-MM-DD"
+            )
+
+    # Use --today flag or default to next workday
+    today = date.today()
+    if use_today:
+        return today
+
+    # Calculate next workday (skip to Monday if Friday)
+    return today + pd.DateOffset(days=1 if today.weekday() != 4 else 3)
 
 
 def parse_arguments():
@@ -251,11 +316,13 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                          # Run with default settings
-  %(prog)s --debug                  # Run in debug mode (no Mattermost message)
-  %(prog)s --no-download            # Use existing HTML files
-  %(prog)s --today                  # Get today's menu instead of next workday
-  %(prog)s --debug --no-download    # Debug mode with existing files
+  %(prog)s                                # Run with default settings
+  %(prog)s --debug                        # Run in debug mode (no Mattermost message)
+  %(prog)s --no-download                  # Use existing HTML files
+  %(prog)s --today                        # Get today's menu instead of next workday
+  %(prog)s --date 2026-02-15              # Get menu for a specific date
+  %(prog)s --debug --no-download          # Debug mode with existing files
+  %(prog)s --date 2026-02-12 --debug      # Get menu for specific date in debug mode
         """,
     )
 
@@ -276,6 +343,13 @@ Examples:
         "--today",
         action="store_true",
         help="Get today's menu instead of next workday's menu",
+    )
+
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Specify a custom date (YYYY-MM-DD format). Overrides --today if provided",
     )
 
     parser.add_argument(
@@ -311,7 +385,14 @@ if __name__ == "__main__":
     work_dir = Path(args.work_dir)
     debug = args.debug
     download = not args.no_download  # Invert because arg is --no-download
-    next_day = not args.today  # Invert because arg is --today
+
+    # Determine the date to download and whether to append it to the URI
+    day_to_download = determine_target_date(
+        custom_date_str=args.date, use_today=args.today
+    )
+
+    # Append date to URI only if we're not using today's date (i.e., for next workday or custom date)
+    append_date_to_uri = not args.today
 
     # Print configuration in debug mode
     if debug:
@@ -319,7 +400,8 @@ if __name__ == "__main__":
         logger.info(f"Work directory: {work_dir}")
         logger.info(f"Debug mode: {debug}")
         logger.info(f"Download new files: {download}")
-        logger.info(f"Next workday menu: {next_day}")
+        logger.info(f"Date to process: {day_to_download.strftime('%Y-%m-%d')}")
+        logger.info(f"Append date to URI: {append_date_to_uri}")
         logger.info(f"Log level: {args.log_level}")
         logger.info("===============================")
 
@@ -334,17 +416,6 @@ if __name__ == "__main__":
 
     errors = []
 
-    today = date.today()
-    day_to_download = (
-        today
-        + pd.DateOffset(
-            # In case it is friday , we want to download the menu for monday
-            days=1 if today.weekday() != 4 else 3
-        )
-        if next_day
-        else today
-    )
-
     for restaurant, uri in uris.items():
         save_path = work_dir / restaurant
 
@@ -357,7 +428,7 @@ if __name__ == "__main__":
 
         try:
             if download:
-                if next_day:
+                if append_date_to_uri:
                     uri = uri + "/date/" + day_to_download.strftime("%Y-%m-%d")
                 download_html(uri, file)
             df = read_menus(file, date=day_to_download)
