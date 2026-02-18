@@ -7,14 +7,30 @@ import pandas as pd
 
 from pathlib import Path
 
-
 logger = logging.getLogger(__name__)
 
 
-def find_labels(img: BeautifulSoup) -> str | None:
+def _extract_co2_value(text: str) -> str | None:
+    normalized = text.lower().replace("₂", "2").replace(",", ".")
+
+    match = re.search(r"([\d]+(?:\.[\d]+)?)\s*(?:kg|g)?\s*co2e?", normalized)
+    if match:
+        return match.group(1)
+
+    match = re.search(r"co2[^\d]*([\d]+(?:\.[\d]+)?)", normalized)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def find_labels(img: BeautifulSoup, soup: BeautifulSoup | None = None) -> str | None:
     """Find all vegan/vegetarian in the labels-list div."""
     alt = img.get("alt", "").lower()
     title = img.get("title", "").lower()
+    alt_normalized = alt.replace("₂", "2")
+    title_normalized = title.replace("₂", "2")
+
     if "vegan" in alt or "vegan" in title:
         return "vegan"
     elif "vegetar" in alt or "vegetar" in title:
@@ -23,13 +39,17 @@ def find_labels(img: BeautifulSoup) -> str | None:
         return "glutenfree"
     elif "gluten-free" in alt or "gluten-free" in title:
         return "glutenfree"
-    elif alt.startswith("co2"):
-        # The title is something like this:
-        # Your ecological footprint represents 0.7 g CO2e
-        # Get the number
-        match = re.search(r"([\d.]+)\s*g\s*co2e", title, re.IGNORECASE)
-        if match:
-            return f"co2_{match.group(1)}"
+    elif "co2" in alt_normalized or "co2" in title_normalized:
+        tooltip_text = ""
+        described_by = img.get("aria-describedby", "")
+        if described_by and soup is not None:
+            tooltip = soup.find(id=described_by)
+            if tooltip:
+                tooltip_text = tooltip.get_text(separator=" ", strip=True)
+
+        co2_value = _extract_co2_value(" ".join([title, tooltip_text]))
+        if co2_value:
+            return f"co2_{co2_value}"
     else:
         return None
 
@@ -149,7 +169,7 @@ def read_menus(file: Path, date: date) -> pd.DataFrame:
                 for label_list in label_lists:
                     logger.debug(f"Processing label list: {label_list.prettify()}")
                     for img in label_list.find_all("img"):
-                        label = find_labels(img)
+                        label = find_labels(img, soup)
                         if label is None:
                             continue
                         elif label == "vegan":
@@ -186,4 +206,3 @@ def read_menus(file: Path, date: date) -> pd.DataFrame:
     df_menus = pd.DataFrame(menus)
 
     return df_menus
-

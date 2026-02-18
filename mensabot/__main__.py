@@ -95,7 +95,15 @@ def parse_price(price_str: str) -> str:
 def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     # Format the dataframe as markdown table for Mattermost
     df_formatted: pd.DataFrame = df[
-        ["restaurant", "price", "vegan", "glutenfree", "title", "description"]
+        [
+            "restaurant",
+            "price",
+            "vegan",
+            "glutenfree",
+            "title",
+            "description",
+            "co2_footprint",
+        ]
     ].copy(deep=True)
     # Put the column names with the first letter capitalized
     df_formatted.columns = [col.capitalize() for col in df_formatted.columns]
@@ -111,7 +119,10 @@ def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(
         lambda x: "✔️" if x else "❌"
     )
-
+    df_formatted = df_formatted.rename(columns={"Co2_footprint": "kg CO2eq"})
+    df_formatted["kg CO2eq"] = df_formatted["kg CO2eq"].apply(
+        lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+    )
     df_md = df_formatted.to_markdown(index=False, tablefmt="github")
 
     return df_md
