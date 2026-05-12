@@ -282,7 +282,12 @@ if __name__ == "__main__":
             if download:
                 if append_date_to_uri:
                     uri = uri + "/date/" + day_to_download.strftime("%Y-%m-%d")
-                download_html(uri, file)
+                try:
+                    download_html(uri, file)
+                except Exception as e:
+                    logger.error(f"Error downloading {restaurant} menu: {e}")
+                    # try again (sometimes connexion fails)
+                    download_html(uri, file)
             df = read_menus(file, date=day_to_download)
         except Exception as e:
             logger.error(f"Error processing {restaurant} menu: {e}")
