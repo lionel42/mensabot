@@ -91,11 +91,7 @@ def parse_price(price_str: str) -> str:
     # Format the price string
     return f"*{price_float:.2f}*"
 
-
-def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
-    # Format the dataframe as markdown table for Mattermost
-    df_formatted: pd.DataFrame = df[
-        [
+cols_export =         [
             "restaurant",
             "price",
             "vegan",
@@ -104,7 +100,10 @@ def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
             "description",
             "co2_footprint",
         ]
-    ].copy(deep=True)
+
+def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
+    # Format the dataframe as markdown table for Mattermost
+    df_formatted: pd.DataFrame = df[cols_export].copy(deep=True)
     # Put the column names with the first letter capitalized
     df_formatted.columns = [col.capitalize() for col in df_formatted.columns]
 
@@ -126,6 +125,28 @@ def format_as_markdown(df: pd.DataFrame, uris: dict[str, str] = {}) -> str:
     df_md = df_formatted.to_markdown(index=False, tablefmt="github")
 
     return df_md
+
+
+def format_as_html(df: pd.DataFrame, index: bool = False) -> str:
+    # Format the dataframe as HTML table for Mattermost
+    df_formatted: pd.DataFrame = df[cols_export].copy(deep=True)
+    # Put the column names with the first letter capitalized
+    df_formatted.columns = [col.capitalize() for col in df_formatted.columns]
+
+    # Put the resturant in bold
+    make_bold = lambda col: col.str.replace(r"(\w+)", r"<b>\1</b>", regex=True)
+    df_formatted["Title"] = make_bold(df_formatted["Title"])
+    # Format price with 2 decimal places (enforce for the markdown transformation)
+    df_formatted["Price"] = df_formatted["Price"].apply(parse_price)
+    df_formatted["Vegan"] = df_formatted["Vegan"].apply(lambda x: "✔️" if x else "❌")
+    df_formatted["Glutenfree"] = df_formatted["Glutenfree"].apply(
+        lambda x: "✔️" if x else "❌"
+    )
+    df_formatted = df_formatted.rename(columns={"Co2_footprint": "kg CO2eq"})
+    df_formatted["kg CO2eq"] = df_formatted["kg CO2eq"].apply(
+        lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+    )
+    return df_formatted.to_html(index=index, escape=False)
 
 
 def determine_target_date(custom_date_str: str = None, use_today: bool = False) -> date:
@@ -329,6 +350,25 @@ if __name__ == "__main__":
         "\n\n ## Errors when processing data" + "\n".join(errors) if errors else ""
     )
     text = f"# {day_to_download.strftime('%A %d %B')} \n\n{df_md}{error_md}"
+
+
+    html = f"""<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Document</title>
+    </head>
+    <body>
+    <h1>{day_to_download.strftime('%A %d %B')}</h1>
+    <pre>{format_as_html(df_veg, index=False)}</pre>
+    {error_md}
+    </body>
+    </html>
+    """
+    server_dir = work_dir / "server"
+    server_dir.mkdir(exist_ok=True, parents=True)
+    with open(server_dir / "index.html", "w", encoding="utf-8") as f:
+        f.write(html)
 
     if debug:
         logger.info(f"Debug mode - Message content:\n{text}")
