@@ -1,4 +1,4 @@
-"""Render the daily vegetarian/vegan menu as a standalone HTML page."""
+"""Render the vegetarian/vegan menus of a week as a standalone HTML page."""
 
 import re
 from datetime import date
@@ -93,13 +93,38 @@ a.restaurant:hover { text-decoration: underline; }
   margin-top: 24px; background: var(--error-bg); color: var(--error);
   border-radius: 12px; padding: 12px 16px;
 }
-.errors h2 { margin: 0 0 6px; font-size: 1rem; }
+.errors h3 { margin: 0 0 6px; font-size: 1rem; }
 .errors ul { margin: 0; padding-left: 20px; }
+/* Day tabs: hidden without JS, where all days are listed one after the other */
+.tabs { display: none; }
+.js .tabs {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px;
+}
+.tab {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 4px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--card); color: var(--text); font: inherit; cursor: pointer;
+}
+.tab:hover { border-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--card); }
+.tab-day { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.tab-date { font-size: 1.4rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tab-count { font-size: 0.75rem; opacity: 0.8; white-space: nowrap; }
+.tab.today .tab-day::after { content: " · today"; text-transform: none; letter-spacing: 0; }
+.day { margin-bottom: 32px; }
+.js .day { margin-bottom: 0; }
+.day-head { margin-bottom: 12px; }
+.day-head h2 { margin: 0; font-size: 1.3rem; }
+.day-head p { margin: 0; color: var(--muted); }
 footer { margin-top: 32px; color: var(--muted); font-size: 0.85rem; }
 /* Phones: stack each row into a block instead of scrolling sideways */
 @media (max-width: 640px) {
   main { padding-top: 20px; }
   header h1 { font-size: 1.6rem; }
+  .js .tabs { gap: 4px; }
+  .tab-count { display: none; }
+  .tab.today .tab-day::after { content: " •"; }
   thead { display: none; }
   table, tbody, tr, td { display: block; width: 100%; }
   tr { padding: 12px 16px; border-bottom: 1px solid var(--border); }
@@ -173,28 +198,24 @@ def _row(row: pd.Series, uris: dict[str, str]) -> str:
           </tr>"""
 
 
-def build_html_page(
-    df: pd.DataFrame | None,
+def _day_section(
     day: date,
-    uris: dict[str, str] | None = None,
-    errors: list[str] | None = None,
+    df: pd.DataFrame | None,
+    uris: dict[str, str],
+    errors: list[str],
 ) -> str:
-    """Build the full HTML page for the vegetarian/vegan menu of `day`."""
-    uris = uris or {}
-    errors = errors or []
-    day_str = day.strftime("%A %d %B")
-
+    """One <section> holding the menu table of a single day."""
     if df is not None and not df.empty:
         rows = "".join(_row(row, uris) for _, row in df.iterrows())
         body = f"""<div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Restaurant</th><th>Diet</th><th class="num">Price</th><th>Dish</th><th>CO₂</th></tr>
-        </thead>
-        <tbody>{rows}
-        </tbody>
-      </table>
-    </div>"""
+        <table>
+          <thead>
+            <tr><th>Restaurant</th><th>Diet</th><th class="num">Price</th><th>Dish</th><th>CO₂</th></tr>
+          </thead>
+          <tbody>{rows}
+          </tbody>
+        </table>
+      </div>"""
         n = len(df)
         subtitle = f"{n} vegetarian or vegan dish{'es' if n != 1 else ''}"
     else:
@@ -205,29 +226,141 @@ def build_html_page(
     if errors:
         items = "".join(f"<li>{escape(e)}</li>" for e in errors)
         errors_html = (
-            f'<section class="errors"><h2>Errors while processing the menus</h2>'
+            f'<section class="errors"><h3>Errors while processing the menus</h3>'
             f"<ul>{items}</ul></section>"
         )
+
+    iso = day.isoformat()
+    return f"""
+    <section class="day" id="day-{iso}" data-date="{iso}"
+             role="tabpanel" aria-labelledby="tab-{iso}">
+      <div class="day-head">
+        <h2>{escape(day.strftime("%A %d %B"))}</h2>
+        <p>{subtitle}</p>
+      </div>
+      {body}
+      {errors_html}
+    </section>"""
+
+
+def _tab(day: date, df: pd.DataFrame | None, active: bool) -> str:
+    iso = day.isoformat()
+    n = 0 if df is None else len(df)
+    return (
+        f'<button type="button" class="tab" role="tab" id="tab-{iso}" data-date="{iso}" '
+        f'aria-controls="day-{iso}" aria-selected="{"true" if active else "false"}">'
+        f'<span class="tab-day">{day.strftime("%a")}</span>'
+        f'<span class="tab-date">{day.day}</span>'
+        f'<span class="tab-count">{n} dish{"es" if n != 1 else ""}</span>'
+        f"</button>"
+    )
+
+
+# Picks the day to show: URL hash > viewer's "today" (or next workday from
+# 14:00 on) > closest day available. Without JS all days are listed.
+SCRIPT = """
+(function () {
+  var CUTOFF_HOUR = 14;
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  var days = Array.prototype.slice.call(document.querySelectorAll(".day"));
+  if (!tabs.length) return;
+  document.documentElement.classList.add("js");
+
+  function iso(d) {
+    var m = d.getMonth() + 1, day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+  }
+  function select(date, updateHash) {
+    tabs.forEach(function (t) {
+      t.setAttribute("aria-selected", t.dataset.date === date ? "true" : "false");
+    });
+    days.forEach(function (s) { s.hidden = s.dataset.date !== date; });
+    if (updateHash && history.replaceState) history.replaceState(null, "", "#" + date);
+  }
+
+  var now = new Date();
+  var todayIso = iso(now);
+  var target = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (now.getHours() >= CUTOFF_HOUR) target.setDate(target.getDate() + 1);
+  while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() + 1);
+  var wanted = iso(target);
+
+  var available = tabs.map(function (t) { return t.dataset.date; });
+  tabs.forEach(function (t) {
+    if (t.dataset.date === todayIso) t.classList.add("today");
+  });
+
+  var hash = location.hash.replace("#", "");
+  var chosen;
+  if (available.indexOf(hash) !== -1) chosen = hash;
+  else if (available.indexOf(wanted) !== -1) chosen = wanted;
+  else {
+    // Closest available day: first upcoming one, otherwise the last one
+    chosen = available[available.length - 1];
+    for (var i = 0; i < available.length; i++) {
+      if (available[i] >= wanted) { chosen = available[i]; break; }
+    }
+  }
+  select(chosen, false);
+
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { select(t.dataset.date, true); });
+    t.addEventListener("keydown", function (e) {
+      var j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : null;
+      if (j === null || j < 0 || j >= tabs.length) return;
+      tabs[j].focus();
+      select(tabs[j].dataset.date, true);
+    });
+  });
+})();
+"""
+
+
+def build_html_page(
+    menus: dict[date, pd.DataFrame | None],
+    default_day: date,
+    uris: dict[str, str] | None = None,
+    errors: dict[date, list[str]] | None = None,
+) -> str:
+    """Build the HTML page with the vegetarian/vegan menus of several days.
+
+    `menus` maps each day to its menu (None if unavailable). `default_day` is
+    shown when JavaScript is unavailable; with JavaScript the page selects
+    today, or the next workday from 14:00 on, in the viewer's local time.
+    """
+    uris = uris or {}
+    errors = errors or {}
+    days = sorted(set(menus) | {default_day})
+
+    tabs = "".join(_tab(d, menus.get(d), d == default_day) for d in days)
+    sections = "".join(
+        _day_section(d, menus.get(d), uris, errors.get(d, []))
+        for d in days
+    )
+
+    first, last = days[0], days[-1]
+    first_fmt = "%d" if (first.year, first.month) == (last.year, last.month) else "%d %B"
+    week_str = f"{first.strftime(first_fmt).lstrip('0')} – {last.strftime('%d %B %Y').lstrip('0')}"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Veggie Lunch – {escape(day_str)}</title>
+  <title>Veggie Lunch – {escape(week_str)}</title>
   <style>{CSS}</style>
 </head>
 <body>
   <main>
     <header>
       <p class="eyebrow">Veggie lunch in Dübendorf</p>
-      <h1>{escape(day_str)}</h1>
-      <p>{subtitle}</p>
+      <h1>{escape(week_str)}</h1>
     </header>
-    {body}
-    {errors_html}
+    <nav class="tabs" role="tablist" aria-label="Day of the week">{tabs}</nav>
+    {sections}
     <footer>CO₂: green &lt; {CO2_LOW} kg · yellow &lt; {CO2_HIGH} kg · red ≥ {CO2_HIGH} kg</footer>
   </main>
+  <script>{SCRIPT}</script>
 </body>
 </html>
 """
